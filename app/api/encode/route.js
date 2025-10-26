@@ -4,6 +4,9 @@ import path from "path";
 import fs from "fs/promises";
 import os from "os";
 
+// Set max duration for text encoding
+export const maxDuration = 60; // 1 minute timeout
+
 export async function POST(request) {
   let tempDir = null;
 

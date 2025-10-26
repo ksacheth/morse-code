@@ -4,6 +4,9 @@ import path from "path";
 import fs from "fs/promises";
 import os from "os";
 
+// Set max duration for processing large audio files
+export const maxDuration = 120; // 2 minute timeout
+
 export async function POST(request) {
   let tempDir = null;
 
