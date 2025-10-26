@@ -7,6 +7,11 @@ import os from "os";
 // Set max duration for text encoding
 export const maxDuration = 60; // 1 minute timeout
 
+// Configure body size limit for large payloads
+export const bodyParser = {
+  sizeLimit: "50mb",
+};
+
 export async function POST(request) {
   let tempDir = null;
 
@@ -14,10 +19,7 @@ export async function POST(request) {
     const { text } = await request.json();
 
     if (!text || typeof text !== "string") {
-      return NextResponse.json(
-        { error: "Text is required" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Text is required" }, { status: 400 });
     }
 
     // Create a temporary directory for the output

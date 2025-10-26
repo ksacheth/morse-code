@@ -7,13 +7,9 @@ import os from "os";
 // Set max duration for processing large audio files
 export const maxDuration = 120; // 2 minute timeout
 
-// Configure body parser to handle large files (50MB)
-export const config = {
-  api: {
-    bodyParser: {
-      sizeLimit: "50mb",
-    },
-  },
+// Configure body size limit for large audio files (50MB)
+export const bodyParser = {
+  sizeLimit: "50mb",
 };
 
 export async function POST(request) {
