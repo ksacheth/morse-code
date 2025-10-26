@@ -47,8 +47,8 @@ export async function POST(request) {
       throw new Error(`Python script not found at: ${pythonScriptPath}`);
     }
 
-    // Execute Python script with conda environment activation
-    const output = await executeWithCondaEnv(pythonScriptPath, [inputFilePath]);
+    // Execute Python script with virtual environment activation
+    const output = await executePythonScript(pythonScriptPath, [inputFilePath]);
 
     console.log("Python output:", output);
 
@@ -94,26 +94,20 @@ export async function POST(request) {
   }
 }
 
-// Helper function to execute Python with conda environment
-function executeWithCondaEnv(scriptPath, args) {
+// Helper function to execute Python script with virtual environment
+function executePythonScript(scriptPath, args) {
   return new Promise((resolve, reject) => {
-    // Properly initialize conda and activate environment
-    // Using conda shell hook to initialize conda in the subshell
-    const bashCommand = `
-      eval "$(conda shell.bash hook)" && \
-      conda activate sns && \
-      python "${scriptPath}" ${args.map(arg => `"${arg}"`).join(' ')}
-    `;
+    // Use venv Python directly
+    const venvPath = path.join(process.cwd(), "venv");
+    const pythonExe = path.join(venvPath, "bin", "python");
 
-    console.log("Executing command with conda initialization");
+    console.log("Using Python from venv:", pythonExe);
+    console.log("Script:", scriptPath);
+    console.log("Args:", args);
 
-    const child = spawn("bash", ["-c", bashCommand], {
+    // Simple command: just run Python from venv directly
+    const child = spawn(pythonExe, [scriptPath, ...args], {
       timeout: 30000, // 30 second timeout
-      shell: "/bin/bash",
-      env: {
-        ...process.env,
-        CONDA_CHANGEPS1: "false", // Prevent conda from changing PS1
-      },
     });
 
     let stdout = "";

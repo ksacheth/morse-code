@@ -26,13 +26,32 @@ claude-code/
 
 ## Setup Instructions
 
-### 1. Create Python Scripts Directory
+### 1. Create Python Virtual Environment
+
+```bash
+# Navigate to the project root directory
+cd /Users/sacheth/Documents/Academics/frontend/claude-code
+
+# Create a virtual environment named 'venv'
+python3 -m venv venv
+
+# Activate the virtual environment
+source venv/bin/activate
+
+# Install required dependencies
+pip install numpy scipy librosa soundfile scikit-learn
+
+# Deactivate when done (optional)
+deactivate
+```
+
+### 2. Create Python Scripts Directory
 
 ```bash
 mkdir -p python_scripts
 ```
 
-### 2. Set Up Your Python Scripts
+### 3. Set Up Your Python Scripts
 
 The API routes expect your Python scripts in the `python_scripts/` directory:
 
@@ -79,37 +98,50 @@ python python_scripts/morse_decoder.py "/path/to/audio.wav"
 }
 ```
 
-### 3. Install Dependencies
+### 4. Install Dependencies
 
-If your Python scripts have dependencies, create a `requirements.txt`:
+The venv is already set up with the common dependencies. If you need to add more later:
 
 ```bash
-pip install -r requirements.txt
+# Activate venv if not already active
+source venv/bin/activate
+
+# Install additional packages as needed
+pip install <package-name>
+
+# Or create a requirements.txt for easy management
+pip freeze > requirements.txt
 ```
 
-Common dependencies for Morse code projects:
+Common dependencies already installed:
 ```
 numpy
 scipy
 librosa
 soundfile
-pydub
+scikit-learn
 ```
 
-### 4. Update API Routes (Optional)
+### 5. Update API Routes (Optional)
 
 If your Python scripts use different:
 - **Arguments** - Update the command construction in `app/api/encode/route.js` and `app/api/decode/route.js`
 - **Output format** - Update the JSON parsing in the API routes
 - **File locations** - Update the `pythonScriptPath` in the API routes
 
-### 5. Test the Setup
+### 6. Test the Setup
 
 ```bash
+# Make sure venv is set up first
+source venv/bin/activate
+
+# Start the development server
 npm run dev
 ```
 
 Visit `http://localhost:3000` and test the encoder/decoder.
+
+**Note:** The venv does NOT need to be activated when running `npm run dev`. The API routes automatically use the venv Python interpreter.
 
 ## Integration Details
 
@@ -245,23 +277,44 @@ if __name__ == "__main__":
 
 ## Troubleshooting
 
+### Virtual Environment Issues
+
+**"No such file or directory: venv/bin/python"**
+- The venv hasn't been created yet
+- Run: `python3 -m venv venv`
+- Then install dependencies: `pip install numpy scipy librosa soundfile scikit-learn`
+
+**"ModuleNotFoundError: No module named 'sklearn'"**
+- Required packages not installed in venv
+- Run: `source venv/bin/activate && pip install scikit-learn numpy scipy librosa soundfile`
+
+**"Permission denied" when running Python**
+- The venv might have permission issues
+- Try: `chmod +x venv/bin/python`
+- Or recreate the venv: `rm -rf venv && python3 -m venv venv`
+
 ### Python Script Not Found
-- Ensure `python_scripts/` directory exists in project root
-- Verify script filenames match exactly: `morse_encoder.py`, `morse_decoder.py`
+- Ensure `python_scripts/` directory exists in project root (or `app/api/decode/` for decode.py)
+- Verify script filenames match exactly: `morse_encoder.py`, `morse_decoder.py`, `decode.py`
 
 ### JSON Parse Error
 - Your Python script must output valid JSON to stdout
 - Any errors should go to stderr, not stdout
 - Remove any debug print statements that go to stdout
+- Check terminal logs for actual Python output
 
 ### Audio File Issues
 - Ensure Python script generates valid WAV files
 - The file path must be exact (use absolute paths)
-- Check file permissions
+- Check file permissions on temporary directory
 
 ### Timeout Issues
-- If scripts take too long, increase timeout in API routes
-- Consider adding a timeout parameter: `{ timeout: 30000 }` to execAsync
+- If scripts take too long, increase timeout in API routes (currently 30 seconds)
+- Check if decode.py is processing correctly by testing it manually:
+  ```bash
+  source venv/bin/activate
+  python app/api/decode/decode.py /path/to/test.wav
+  ```
 
 ## Features
 
