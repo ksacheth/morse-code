@@ -4,14 +4,6 @@ import path from "path";
 import fs from "fs/promises";
 import os from "os";
 
-// Set max duration for processing large audio files
-export const maxDuration = 120; // 2 minute timeout
-
-// Configure body size limit for large audio files (50MB)
-export const bodyParser = {
-  sizeLimit: "50mb",
-};
-
 export async function POST(request) {
   let tempDir = null;
 

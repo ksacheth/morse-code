@@ -26,11 +26,13 @@ export async function POST(request) {
     tempDir = path.join(os.tmpdir(), `morse-encode-${Date.now()}`);
     await fs.mkdir(tempDir, { recursive: true });
 
-    // Path to the Python encoder script
+    // Path to the Python encoder script (in the same directory as this route)
     const pythonScriptPath = path.join(
       process.cwd(),
-      "python_scripts",
-      "morse_encoder.py"
+      "app",
+      "api",
+      "encode",
+      "encode.py"
     );
 
     console.log("Python script path:", pythonScriptPath);
