@@ -6,6 +6,15 @@ import wave # For reading WAV files
 import argparse # For command-line arguments
 import os
 import json
+import time
+
+# Track timing for debugging
+start_time = time.time()
+
+def log_time(message):
+    """Print timing information for debugging"""
+    elapsed = time.time() - start_time
+    sys.stderr.write(f"[{elapsed:.2f}s] {message}\n")
 
 # --- Step 1: Read Audio File ---
 #
@@ -321,14 +330,19 @@ def translate_morse(morse_words: list[list[str]]) -> str:
 # --- Main Execution ---
 # - argparse logic adapted
 if __name__ == "__main__":
+    log_time("Script started")
+
     parser = argparse.ArgumentParser(
         description="Decode morse code from a WAV audio file."
     )
     parser.add_argument("wavfile", help="Input audio file (.wav format)")
     args = parser.parse_args()
 
+    log_time("Arguments parsed")
+
     # --- Step 1 ---
     sample_rate, data = read_wave(args.wavfile)
+    log_time("Audio file read")
     # print(f"Read file: {args.wavfile}, Sample Rate: {sample_rate}, Data Length: {len(data)}")
     if len(data) == 0:
         # print("Audio file is empty or could not be read properly.")
@@ -345,13 +359,16 @@ if __name__ == "__main__":
     if window_size_samples < 1: window_size_samples = 1 # Ensure window size is at least 1
     # print(f"Using smoothing window size: {window_size_samples} samples")
     smoothed_envelope = smoothed_power(data_proc, window_size_samples, mode="same")
+    log_time("Smoothing envelope calculated")
 
     # --- Step 2b ---
     square_wave = squared_signal(smoothed_envelope)
+    log_time("Square wave generated")
     # print(f"Generated square wave of length: {len(square_wave)}")
 
     # --- Step 3 ---
     on_durations, off_durations = calculate_on_off_samples(square_wave)
+    log_time("ON/OFF durations calculated")
     # print(f"Found {len(on_durations)} ON durations and {len(off_durations)} OFF durations.")
     if len(on_durations) == 0:
         # print("No beeps detected.")
@@ -360,6 +377,7 @@ if __name__ == "__main__":
     # --- Step 4a ---
     try:
         dash_dot_characters = identify_dots_dashes(on_durations, sample_rate)
+        log_time("Dots/dashes identified")
         # print(f"Classified {len(dash_dot_characters)} dots/dashes.")
     except UserWarning as e:
         sys.stderr.write(f"Error classifying dots/dashes: {e}\n")
@@ -371,6 +389,7 @@ if __name__ == "__main__":
         try:
              # Need kmeans labels to pass to group_morse_words
              space_types, space_centers, space_cluster_labels = identify_spaces(off_durations)
+             log_time("Spaces identified")
              # print(f"Classified {len(space_types)} spaces into {len(space_centers)} types.")
              # print(f"Space cluster centers (samples): {space_centers}")
         except UserWarning as e:
@@ -387,10 +406,12 @@ if __name__ == "__main__":
     # --- Step 5a ---
     # Use the more robust grouping function
     morse_words = group_morse_words(dash_dot_characters, off_durations, space_cluster_labels)
+    log_time("Morse words grouped")
     # print(f"Grouped into {len(morse_words)} words.")
 
     # --- Step 5b & 6 ---
     final_text = translate_morse(morse_words)
+    log_time("Text translated from morse")
 
     # Generate morse code representation
     morse_representation = " / ".join([" ".join(word) for word in morse_words])
@@ -400,4 +421,5 @@ if __name__ == "__main__":
         "morse": morse_representation,
         "text": final_text
     }
+    log_time("Decoding complete - outputting JSON")
     print(json.dumps(output))

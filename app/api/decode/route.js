@@ -107,7 +107,7 @@ function executePythonScript(scriptPath, args) {
 
     // Simple command: just run Python from venv directly
     const child = spawn(pythonExe, [scriptPath, ...args], {
-      timeout: 30000, // 30 second timeout
+      timeout: 120000, // 120 second timeout (2 minutes)
     });
 
     let stdout = "";
@@ -157,8 +157,8 @@ function executePythonScript(scriptPath, args) {
     const timeoutId = setTimeout(() => {
       timedOut = true;
       child.kill("SIGTERM");
-      reject(new Error("Python script execution timeout (30s)"));
-    }, 30000);
+      reject(new Error("Python script execution timeout (120s / 2 minutes)"));
+    }, 120000);
 
     child.on("close", () => {
       clearTimeout(timeoutId);
