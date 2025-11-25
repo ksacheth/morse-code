@@ -7,6 +7,8 @@ import argparse # For command-line arguments
 import os
 import json
 import time
+from scipy.signal import butter, filtfilt
+from scipy.fft import fft, fftfreq
 
 # Track timing for debugging
 start_time = time.time()
@@ -17,7 +19,7 @@ def log_time(message):
     sys.stderr.write(f"[{elapsed:.2f}s] {message}\n")
 
 # --- Step 1: Read Audio File ---
-#
+
 def read_wave(file: os.PathLike) -> tuple[int, np.ndarray]:
     """Read WAV file into numpy array (Mono only)"""
     try:
@@ -52,7 +54,7 @@ def read_wave(file: os.PathLike) -> tuple[int, np.ndarray]:
         sys.exit(1)
 
 # --- Step 2a: Calculate Smoothed Power (Envelope) ---
-#
+
 def smoothed_power(
     data: np.ndarray, window_size: int, mode: str = "same" # Changed default to 'same'
 ) -> np.ndarray:
@@ -90,7 +92,7 @@ def smoothed_power(
     return smoothed_envelope_float # Return float for better thresholding precision
 
 # --- Step 2b: Create Square Wave (Thresholding) ---
-#
+
 def squared_signal(data: np.ndarray, threshold: float = None) -> np.ndarray:
     """Convert signal to binary 0/1 based on threshold value"""
     if data.size == 0:
@@ -106,7 +108,7 @@ def squared_signal(data: np.ndarray, threshold: float = None) -> np.ndarray:
     return square_wave
 
 # --- Step 3: Measure Durations ---
-#
+
 def calculate_on_off_samples(square_wave: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     """Calculate signal ON (1s) and OFF (0s) durations in samples."""
     if len(square_wave) == 0:
@@ -160,7 +162,7 @@ def calculate_on_off_samples(square_wave: np.ndarray) -> tuple[np.ndarray, np.nd
 
 
 # --- Step 4a: Cluster ON Durations (Dots vs. Dashes) ---
-#
+
 def identify_dots_dashes(on_samples: np.ndarray, sample_rate: int = None) -> np.ndarray:
     """Identifies dots (.) and dashes (-) from ON sample lengths using K-Means (k=2)."""
     if len(on_samples) == 0:
@@ -204,7 +206,7 @@ def identify_dots_dashes(on_samples: np.ndarray, sample_rate: int = None) -> np.
 INTRA_CHAR_SPACE = 0
 INTER_LETTER_SPACE = 1
 INTER_WORD_SPACE = 2
-#
+
 def identify_spaces(off_samples: np.ndarray) -> tuple[np.ndarray, np.ndarray, list]:
     """
     Identifies space types from OFF sample lengths using K-Means (k=up to 3).
@@ -330,6 +332,59 @@ def translate_morse(morse_words: list[list[str]]) -> str:
     final_message = " ".join(translated_words)
     return final_message
 
+def bandpass_filter_signal(data, sample_rate):
+    """
+    1. Use FFT to find the dominant frequency (the beep).
+    2. Apply a Bandpass Filter around that frequency to remove noise.
+    Returns: float32 array
+    """
+    # Work with floats to avoid integer overflow issues during filtering
+    data = data.astype(np.float32)
+
+    # 1. FFT to find dominant frequency
+    n = len(data)
+    if n > sample_rate: # Analyze max 1 second
+        analyze_data = data[:sample_rate]
+        n = sample_rate
+    else:
+        analyze_data = data
+
+    # Apply FFT
+    yf = fft(analyze_data)
+    xf = fftfreq(n, 1 / sample_rate)
+    
+    # Get magnitude, ignore DC (0Hz)
+    magnitudes = np.abs(yf[:n//2])
+    magnitudes[0] = 0 
+    
+    # Find peak
+    peak_freq_idx = np.argmax(magnitudes)
+    peak_freq = xf[peak_freq_idx]
+    
+    sys.stderr.write(f"Detected dominant frequency: {peak_freq:.2f} Hz\n")
+
+    # 2. Design Bandpass Filter (Butterworth)
+    # Filter width: +/- 100 Hz around peak
+    lowcut = peak_freq - 100
+    highcut = peak_freq + 100
+    
+    # Safety checks
+    if lowcut <= 0: lowcut = 50
+    if highcut >= sample_rate / 2: highcut = sample_rate / 2 - 100
+    
+    order = 4
+    nyquist = 0.5 * sample_rate
+    low = lowcut / nyquist
+    high = highcut / nyquist
+    
+    b, a = butter(order, [low, high], btype='band')
+    
+    # 3. Apply Filter (Zero-phase filtering)
+    filtered_data = filtfilt(b, a, data)
+    
+    return filtered_data
+
+
 # --- Main Execution ---
 # - argparse logic adapted
 if __name__ == "__main__":
@@ -343,83 +398,79 @@ if __name__ == "__main__":
 
     log_time("Arguments parsed")
 
-    # --- Step 1 ---
+    # --- Step 1: Read and Normalize ---
     sample_rate, data = read_wave(args.wavfile)
     log_time("Audio file read")
-    # print(f"Read file: {args.wavfile}, Sample Rate: {sample_rate}, Data Length: {len(data)}")
+
     if len(data) == 0:
-        # print("Audio file is empty or could not be read properly.")
         sys.exit(0)
 
-    # --- Step 2a ---
-    # Ensure data is suitable type for processing
+    # Pre-process data: Convert to float and remove DC offset if 8-bit
     if data.dtype == np.uint8:
-         data_proc = data.astype(np.int16) - 128
+        # 8-bit is 0-255 unsigned, center is 128
+        data_proc = data.astype(np.float32) - 128.0
     else:
-         data_proc = data.astype(np.float32) # Use float for calculations
+        # 16-bit is signed, just convert to float
+        data_proc = data.astype(np.float32)
 
-    window_size_samples = int(0.01 * sample_rate) # Window size for smoothing
-    if window_size_samples < 1: window_size_samples = 1 # Ensure window size is at least 1
-    # print(f"Using smoothing window size: {window_size_samples} samples")
+    # --- Step 2: Intelligent Filtering ---
+    try:
+        # data_proc is already float, safe to filter
+        data_proc = bandpass_filter_signal(data_proc, sample_rate)
+        log_time("Applied FFT-based Bandpass Filter")
+    except Exception as e:
+        sys.stderr.write(f"Filtering failed: {e}. Proceeding with raw audio.\n")
+
+    # --- Step 2a: Envelope Calculation ---
+    window_size_samples = int(0.01 * sample_rate) 
+    if window_size_samples < 1: window_size_samples = 1
+    
     smoothed_envelope = smoothed_power(data_proc, window_size_samples, mode="same")
     log_time("Smoothing envelope calculated")
 
-    # --- Step 2b ---
+    # --- Step 2b: Thresholding ---
     square_wave = squared_signal(smoothed_envelope)
     log_time("Square wave generated")
-    # print(f"Generated square wave of length: {len(square_wave)}")
 
-    # --- Step 3 ---
+    # --- Step 3: Durations ---
     on_durations, off_durations = calculate_on_off_samples(square_wave)
     log_time("ON/OFF durations calculated")
-    # print(f"Found {len(on_durations)} ON durations and {len(off_durations)} OFF durations.")
+    
     if len(on_durations) == 0:
-        # print("No beeps detected.")
+        # Output empty result if no beeps
+        print(json.dumps({"morse": "", "text": ""}))
         sys.exit(0)
 
-    # --- Step 4a ---
+    # --- Step 4a: Dots vs Dashes ---
     try:
         dash_dot_characters = identify_dots_dashes(on_durations, sample_rate)
         log_time("Dots/dashes identified")
-        # print(f"Classified {len(dash_dot_characters)} dots/dashes.")
     except UserWarning as e:
         sys.stderr.write(f"Error classifying dots/dashes: {e}\n")
         sys.exit(1)
 
-
-    # --- Step 4b ---
+    # --- Step 4b: Spaces ---
     if len(off_durations) > 0:
         try:
-             # Need kmeans labels to pass to group_morse_words
              space_types, space_centers, space_cluster_labels = identify_spaces(off_durations)
              log_time("Spaces identified")
-             # print(f"Classified {len(space_types)} spaces into {len(space_centers)} types.")
-             # print(f"Space cluster centers (samples): {space_centers}")
         except UserWarning as e:
             sys.stderr.write(f"Warning during space classification: {e}\n")
-            # Attempt to continue, assuming fewer space types
             space_types, space_centers, space_cluster_labels = identify_spaces(off_durations)
-
     else:
-        # print("No spaces found between beeps.")
         space_types = np.array([], dtype=int)
-        space_cluster_labels = [-1, -1, -1] # No labels assigned
+        space_cluster_labels = [-1, -1, -1]
 
-
-    # --- Step 5a ---
-    # Use the more robust grouping function
+    # --- Step 5a: Grouping ---
     morse_words = group_morse_words(dash_dot_characters, off_durations, space_cluster_labels)
     log_time("Morse words grouped")
-    # print(f"Grouped into {len(morse_words)} words.")
 
-    # --- Step 5b & 6 ---
+    # --- Step 5b: Translating ---
     final_text = translate_morse(morse_words)
     log_time("Text translated from morse")
 
-    # Generate morse code representation
     morse_representation = " / ".join([" ".join(word) for word in morse_words])
 
-    # Output as JSON for the API
     output = {
         "morse": morse_representation,
         "text": final_text
