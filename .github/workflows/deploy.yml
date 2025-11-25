@@ -17,32 +17,37 @@ jobs:
           key: ${{ secrets.PRIVATE_SSH_KEY }}
           port: 22
           script: |
-                export NVM_DIR="$HOME/.nvm"
-                [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-                export PATH="/home/admin/.bun/bin:$PATH"
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+            export PATH="/home/admin/.bun/bin:$PATH"
 
 
-                cd ~/morse-code
-                git pull origin main
+            cd ~/morse-code
+            git pull origin main
 
-                bun install
-                bun run build
+            # Setup Python virtual environment and install dependencies
+            python3 -m venv venv
+            source venv/bin/activate
+            pip install -r requirements.txt
 
-                APP_NAME="morse-code"
+            bun install
+            bun run build
 
-
-                pm2 describe $APP_NAME > /dev/null
-                RUNNING=$?
-
-                if [ "${RUNNING}" -ne 0 ]; then
-                  # If it's not running, start it
-                  echo "Starting $APP_NAME..."
-                  pm2 start bun --name "$APP_NAME" -- start -- -p 3001
-                else
-                  # If it is running, restart it to apply changes
-                  echo "Restarting $APP_NAME..."
-                  pm2 restart $APP_NAME
-                fi
+            APP_NAME="morse-code"
 
 
-                pm2 save
+            pm2 describe $APP_NAME > /dev/null
+            RUNNING=$?
+
+            if [ "${RUNNING}" -ne 0 ]; then
+              # If it's not running, start it
+              echo "Starting $APP_NAME..."
+              pm2 start bun --name "$APP_NAME" -- start -- -p 3001
+            else
+              # If it is running, restart it to apply changes
+              echo "Restarting $APP_NAME..."
+              pm2 restart $APP_NAME
+            fi
+
+
+            pm2 save
