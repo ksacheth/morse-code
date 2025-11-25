@@ -37,7 +37,7 @@ jobs:
                 if [ "${RUNNING}" -ne 0 ]; then
                   # If it's not running, start it
                   echo "Starting $APP_NAME..."
-                  pm2 start bun --name "$APP_NAME" -- start -- -p 3000
+                  pm2 start bun --name "$APP_NAME" -- start -- -p 3001
                 else
                   # If it is running, restart it to apply changes
                   echo "Restarting $APP_NAME..."
