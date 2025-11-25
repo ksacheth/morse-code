@@ -69,6 +69,7 @@ export async function POST(request) {
     return NextResponse.json({
       morse: result.morse || "",
       text: result.text || "",
+      visualization: result.visualization || null,
       status: "success",
     });
   } catch (error) {
