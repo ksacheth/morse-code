@@ -25,11 +25,8 @@ export async function POST(request) {
 
     const scriptPath = path.join(process.cwd(), "app/api/decode/decode.py");
 
-    // Use Python from virtual environment if available, fallback to python3
-    const pythonPath =
-      process.env.PYTHON_PATH ||
-      path.join(process.cwd(), "venv/bin/python3") ||
-      "python3";
+    // Use Python from environment variable or default to python3
+    const pythonPath = process.env.PYTHON_PATH || "python3";
     const pythonProcess = spawn(pythonPath, [scriptPath, tempFilePath]);
 
     let dataString = "";
