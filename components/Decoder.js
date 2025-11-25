@@ -127,7 +127,7 @@ export function Decoder() {
               </div>
               <button
                 onClick={handleRemoveFile}
-                className="px-3 py-1 rounded text-sm text-red-600 hover:bg-red-100 transition-colors"
+                className="px-3 py-1 rounded text-sm text-red-600 hover:bg-red-900/20 transition-colors"
               >
                 Remove
               </button>
@@ -141,27 +141,27 @@ export function Decoder() {
 
         {/* Error Message */}
         {error && (
-          <div className="mb-6 p-4 rounded-lg bg-red-50 border border-red-300 text-red-700">
+          <div className="mb-6 p-4 rounded-lg bg-red-900/20 border border-red-500/30 text-red-300">
             {error}
           </div>
         )}
 
         {/* Morse Code Output */}
         {morse && (
-          <div className="mb-8 p-6 rounded-lg bg-slate-50 border border-slate-300">
+          <div className="mb-8 p-6 rounded-lg bg-slate-800/50 border border-slate-600/50">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-lg font-semibold text-slate-900">Detected Morse Code</h3>
+              <h3 className="text-lg font-semibold text-white">Detected Morse Code</h3>
               <button
                 onClick={() => copyToClipboard(morse)}
-                className="text-xs px-3 py-1 rounded bg-slate-200 hover:bg-slate-300 text-slate-700 transition-colors"
+                className="text-xs px-3 py-1 rounded bg-slate-700/50 hover:bg-slate-700 text-slate-300 transition-colors"
               >
                 Copy
               </button>
             </div>
-            <div className="font-mono text-lg text-cyan-600 break-words p-4 bg-white rounded-lg max-h-32 overflow-y-auto border border-slate-200">
+            <div className="font-mono text-lg text-cyan-300 break-words p-4 bg-slate-900/50 rounded-lg max-h-32 overflow-y-auto">
               {morse}
             </div>
-            <p className="text-sm text-slate-600 mt-3">
+            <p className="text-sm text-slate-400 mt-3">
               · (dot) - (dash) / (space between letters) | (space between words)
             </p>
           </div>
@@ -169,17 +169,17 @@ export function Decoder() {
 
         {/* Text Output */}
         {text && (
-          <div className="mb-8 p-6 rounded-lg bg-slate-50 border border-slate-300">
+          <div className="mb-8 p-6 rounded-lg bg-slate-800/50 border border-slate-600/50">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-lg font-semibold text-slate-900">Decoded Text</h3>
+              <h3 className="text-lg font-semibold text-white">Decoded Text</h3>
               <button
                 onClick={() => copyToClipboard(text)}
-                className="text-xs px-3 py-1 rounded bg-slate-200 hover:bg-slate-300 text-slate-700 transition-colors"
+                className="text-xs px-3 py-1 rounded bg-slate-700/50 hover:bg-slate-700 text-slate-300 transition-colors"
               >
                 Copy
               </button>
             </div>
-            <div className="text-2xl text-green-600 font-semibold p-4 bg-white rounded-lg break-words border border-slate-200">
+            <div className="text-2xl text-green-300 font-semibold p-4 bg-slate-900/50 rounded-lg break-words">
               {text}
             </div>
           </div>
@@ -197,7 +197,7 @@ export function Decoder() {
           {(morse || text) && (
             <button
               onClick={handleClear}
-              className="flex-1 min-w-[150px] px-6 py-3 rounded-lg font-semibold transition-all duration-200 bg-slate-200 hover:bg-slate-300 text-slate-700"
+              className="flex-1 min-w-[150px] px-6 py-3 rounded-lg font-semibold transition-all duration-200 bg-slate-700/50 hover:bg-slate-700 text-slate-200"
             >
               Clear
             </button>
