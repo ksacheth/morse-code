@@ -2,314 +2,229 @@
 
 import { useState, useRef, useEffect } from "react";
 
-export function Decoder() {
+export default function Decoder() {
   const [file, setFile] = useState(null);
-  const [fileName, setFileName] = useState("");
+  const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [morse, setMorse] = useState("");
-  const [text, setText] = useState("");
-  const [vizData, setVizData] = useState(null);
-  
-  const fileInputRef = useRef(null);
+  const [error, setError] = useState(null);
   const canvasRef = useRef(null);
 
-  const handleFileSelect = (e) => {
-    const selectedFile = e.target.files?.[0];
-    if (selectedFile) {
-      if (!selectedFile.type.startsWith("audio/")) {
-        setError("Please select a valid audio file (WAV, MP3, etc.)");
-        return;
-      }
-      setFile(selectedFile);
-      setFileName(selectedFile.name);
-      setError("");
-      // Reset outputs
-      setMorse("");
-      setText("");
-      setVizData(null);
+  const handleFileChange = (e) => {
+    if (e.target.files && e.target.files[0]) {
+      setFile(e.target.files[0]);
     }
   };
 
-  const handleDecode = async () => {
-    if (!file) {
-      setError("Please select an audio file");
-      return;
+  const handleDrop = (e) => {
+    e.preventDefault();
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      setFile(e.dataTransfer.files[0]);
     }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+  };
+
+  const handleDecode = async () => {
+    if (!file) return;
 
     setLoading(true);
-    setError("");
-    setMorse("");
-    setText("");
-    setVizData(null);
+    setError(null);
+    setResult(null);
+
+    const formData = new FormData();
+    formData.append("file", file);
 
     try {
-      const formData = new FormData();
-      formData.append("file", file);
-
       const response = await fetch("/api/decode", {
         method: "POST",
         body: formData,
       });
 
       if (!response.ok) {
-        throw new Error("Failed to decode audio");
+        throw new Error("Decoding failed");
       }
 
       const data = await response.json();
-      
-      if (data.error) throw new Error(data.error);
-      
-      setMorse(data.morse);
-      setText(data.text);
-      if (data.visualization) {
-        setVizData(data.visualization);
-      }
+      setResult(data);
     } catch (err) {
-      setError(err.message || "An error occurred while decoding");
+      setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  // Drawing Logic
   useEffect(() => {
-    if (!vizData || !canvasRef.current) return;
+    if (result && result.visualization && canvasRef.current) {
+      drawVisualization(result.visualization);
+    }
+  }, [result]);
 
+  const drawVisualization = (vizData) => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d");
-    const { width, height } = canvas.getBoundingClientRect();
-    
-    // Set actual canvas size to match display size for sharpness
-    canvas.width = width;
-    canvas.height = height;
+    const width = canvas.width;
+    const height = canvas.height;
 
-    const { audio, envelope, threshold } = vizData;
-    const len = audio.length;
-    
-    // Clear canvas
     ctx.clearRect(0, 0, width, height);
 
-    // Helper to map value to Y coordinate
-    // Audio is typically +/- 32768 for 16-bit, but we converted to float.
-    // Envelope is 0 to ~32768. 
-    // We need to normalize based on the max value found in envelope to keep it visible.
-    const maxVal = Math.max(
-        ...envelope, 
-        Math.abs(Math.max(...audio)), 
-        Math.abs(Math.min(...audio))
-    ) || 1;
-    
-    // Scale factor (leave 10% padding)
-    const scale = (height / 2) * 0.9 / maxVal;
-    const centerY = height / 2;
-
-    // 1. Draw Raw Audio (Gray)
+    // Draw Audio Waveform
     ctx.beginPath();
-    ctx.strokeStyle = "#94a3b8"; // slate-400
+    ctx.strokeStyle = "#93c5fd"; // blue-300
     ctx.lineWidth = 1;
-    for (let i = 0; i < len; i++) {
-        const x = (i / len) * width;
-        const y = centerY - (audio[i] * scale);
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-    }
+    const audioData = vizData.audio || [];
+    const step = width / audioData.length;
+
+    audioData.forEach((val, i) => {
+      const x = i * step;
+      const y = (1 - val) * (height / 2); // Normalize roughly
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
     ctx.stroke();
 
-    // 2. Draw Envelope (Blue)
+    // Draw Envelope
     ctx.beginPath();
     ctx.strokeStyle = "#2563eb"; // blue-600
     ctx.lineWidth = 2;
-    for (let i = 0; i < len; i++) {
-        const x = (i / len) * width;
-        // Envelope is positive, but we draw it "up" from center (or just absolute)
-        // Since envelope is magnitude, let's draw it from center up, 
-        // effectively overlaying the positive half of the wave
-        const y = centerY - (envelope[i] * scale);
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
-    }
+    const envelopeData = vizData.envelope || [];
+
+    envelopeData.forEach((val, i) => {
+      const x = i * step;
+      const y = (1 - val) * (height / 2);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
     ctx.stroke();
 
-    // 3. Draw Threshold (Red Dashed Line)
-    // Threshold is a scalar value
-    const thresholdY = centerY - (threshold * scale);
+    // Draw Threshold
+    const threshold = vizData.threshold || 0;
+    const thresholdY = (1 - threshold) * (height / 2);
     ctx.beginPath();
-    ctx.strokeStyle = "#dc2626"; // red-600
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#ef4444"; // red-500
     ctx.setLineDash([5, 5]);
     ctx.moveTo(0, thresholdY);
     ctx.lineTo(width, thresholdY);
     ctx.stroke();
-    ctx.setLineDash([]); // Reset
-
-    // Labels
-    ctx.fillStyle = "#2563eb";
-    ctx.font = "12px sans-serif";
-    ctx.fillText("Signal Envelope", 10, 20);
-    
-    ctx.fillStyle = "#dc2626";
-    ctx.fillText("Detection Threshold", 10, 35);
-
-  }, [vizData]);
-
-  const handleClear = () => {
-    setFile(null);
-    setFileName("");
-    setMorse("");
-    setText("");
-    setError("");
-    setVizData(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
-  };
-
-  const handleRemoveFile = () => {
-    setFile(null);
-    setFileName("");
-    setVizData(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
-  };
-
-  const copyToClipboard = (content) => {
-    navigator.clipboard.writeText(content);
+    ctx.setLineDash([]);
   };
 
   return (
-    <div className="max-w-4xl mx-auto">
-      <div className="bg-white border border-cyan-200 rounded-2xl p-8">
-        {/* File Upload Section */}
-        <div className="mb-8">
-          <label className="block text-lg font-semibold text-slate-900 mb-4">
-            Upload Audio File
-          </label>
-          <div className="relative">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="audio/*"
-              onChange={handleFileSelect}
-              className="hidden"
-            />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="w-full px-6 py-8 rounded-lg border-2 border-dashed border-cyan-400 hover:border-cyan-500 bg-slate-50 hover:bg-slate-100 transition-all duration-200 text-center cursor-pointer group"
+    <div className="max-w-2xl mx-auto p-6 bg-white rounded-xl shadow-md space-y-6">
+      <h2 className="text-2xl font-bold text-gray-800">Audio Decoder</h2>
+
+      <div
+        className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-500 transition cursor-pointer bg-gray-50"
+        onDrop={handleDrop}
+        onDragOver={handleDragOver}
+      >
+        <input
+          type="file"
+          accept=".wav,.mp3"
+          onChange={handleFileChange}
+          className="hidden"
+          id="file-upload"
+        />
+        <label htmlFor="file-upload" className="cursor-pointer">
+          <div className="space-y-2">
+            <svg
+              className="mx-auto h-12 w-12 text-gray-400"
+              stroke="currentColor"
+              fill="none"
+              viewBox="0 0 48 48"
+              aria-hidden="true"
             >
-              <div className="text-3xl mb-2 group-hover:scale-110 transition-transform">
-                📁
-              </div>
-              <p className="text-slate-900 font-semibold">
-                {file ? "Change File" : "Choose Audio File"}
-              </p>
-              <p className="text-slate-600 text-sm mt-1">
-                or drag and drop (WAV, MP3, etc.)
-              </p>
-            </button>
+              <path
+                d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            <div className="text-sm text-gray-600">
+              <span className="font-medium text-blue-600 hover:text-blue-500">
+                Upload a file
+              </span>{" "}
+              or drag and drop
+            </div>
+            <p className="text-xs text-gray-500">WAV or MP3 up to 10MB</p>
           </div>
-
-          {/* Selected File Display */}
-          {file && (
-            <div className="mt-4 p-4 rounded-lg bg-slate-50 border border-slate-300 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className="text-2xl">🎵</span>
-                <div>
-                  <p className="text-slate-900 font-medium">{fileName}</p>
-                  <p className="text-sm text-slate-600">
-                    {(file.size / 1024 / 1024).toFixed(2)} MB
-                  </p>
-                </div>
-              </div>
-              <button
-                onClick={handleRemoveFile}
-                className="px-3 py-1 rounded text-sm text-red-600 hover:bg-red-900/20 transition-colors"
-              >
-                Remove
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Error Message */}
-        {error && (
-          <div className="mb-6 p-4 rounded-lg bg-red-900/20 border border-red-500/30 text-red-700">
-            {error}
-          </div>
+        </label>
+        {file && (
+          <p className="mt-4 text-sm font-medium text-green-600">
+            Selected: {file.name}
+          </p>
         )}
-
-        {/* Signal Visualization Dashboard */}
-        {vizData && (
-            <div className="mb-8 p-4 rounded-lg bg-slate-50 border border-slate-300">
-                <h3 className="text-lg font-semibold text-slate-900 mb-2">Signal Analysis Dashboard</h3>
-                <p className="text-sm text-slate-500 mb-4">
-                    Visualizing filtered audio, envelope detection, and logic threshold.
-                </p>
-                <div className="w-full h-64 bg-white rounded border border-slate-200 shadow-inner relative">
-                    <canvas 
-                        ref={canvasRef} 
-                        className="w-full h-full block"
-                    />
-                </div>
-            </div>
-        )}
-
-        {/* Morse Code Output */}
-        {morse && (
-          <div className="mb-8 p-6 rounded-lg bg-slate-800 border border-slate-600">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-lg font-semibold text-white">Detected Morse Code</h3>
-              <button
-                onClick={() => copyToClipboard(morse)}
-                className="text-xs px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
-              >
-                Copy
-              </button>
-            </div>
-            <div className="font-mono text-lg text-cyan-300 break-words p-4 bg-slate-900 rounded-lg max-h-32 overflow-y-auto">
-              {morse}
-            </div>
-          </div>
-        )}
-
-        {/* Text Output */}
-        {text && (
-          <div className="mb-8 p-6 rounded-lg bg-slate-800 border border-slate-600">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-lg font-semibold text-white">Decoded Text</h3>
-              <button
-                onClick={() => copyToClipboard(text)}
-                className="text-xs px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
-              >
-                Copy
-              </button>
-            </div>
-            <div className="text-2xl text-green-300 font-semibold p-4 bg-slate-900 rounded-lg break-words">
-              {text}
-            </div>
-          </div>
-        )}
-
-        {/* Action Buttons */}
-        <div className="flex flex-wrap gap-3">
-          <button
-            onClick={handleDecode}
-            disabled={loading || !file}
-            className="flex-1 min-w-[150px] px-6 py-3 rounded-lg font-semibold transition-all duration-200 bg-cyan-500 hover:bg-cyan-600 disabled:bg-cyan-500/50 disabled:cursor-not-allowed text-white"
-          >
-            {loading ? "Decoding..." : "Decode Audio"}
-          </button>
-          {(morse || text) && (
-            <button
-              onClick={handleClear}
-              className="flex-1 min-w-[150px] px-6 py-3 rounded-lg font-semibold transition-all duration-200 bg-slate-200 hover:bg-slate-300 text-slate-700"
-            >
-              Clear
-            </button>
-          )}
-        </div>
       </div>
+
+      <button
+        onClick={handleDecode}
+        disabled={loading || !file}
+        className="w-full py-3 px-4 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg shadow transition disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+      >
+        {loading ? "Decoding..." : "Decode Audio"}
+      </button>
+
+      {error && (
+        <div className="p-4 bg-red-50 text-red-700 rounded-lg">{error}</div>
+      )}
+
+      {result && (
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+              <h3 className="text-sm font-medium text-gray-500 mb-2">
+                Detected Morse
+              </h3>
+              <p className="font-mono text-lg text-gray-900 break-all">
+                {result.morse}
+              </p>
+              <button
+                onClick={() => navigator.clipboard.writeText(result.morse)}
+                className="mt-2 text-xs text-blue-600 hover:text-blue-800 font-medium cursor-pointer"
+              >
+                Copy
+              </button>
+            </div>
+            <div className="p-4 bg-green-50 rounded-lg border border-green-200">
+              <h3 className="text-sm font-medium text-green-800 mb-2">
+                Translated Text
+              </h3>
+              <p className="text-lg text-gray-900">{result.text}</p>
+              <button
+                onClick={() => navigator.clipboard.writeText(result.text)}
+                className="mt-2 text-xs text-green-700 hover:text-green-900 font-medium cursor-pointer"
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+
+          <div className="p-4 bg-white rounded-lg border border-gray-200 shadow-sm">
+            <h3 className="text-sm font-medium text-gray-500 mb-4">
+              Signal Analysis
+            </h3>
+            <canvas
+              ref={canvasRef}
+              width={600}
+              height={200}
+              className="w-full h-auto bg-gray-900 rounded"
+            />
+            <div className="flex justify-center gap-4 mt-2 text-xs text-gray-500">
+              <div className="flex items-center">
+                <span className="w-3 h-3 bg-blue-300 mr-1"></span> Audio
+              </div>
+              <div className="flex items-center">
+                <span className="w-3 h-3 bg-blue-600 mr-1"></span> Envelope
+              </div>
+              <div className="flex items-center">
+                <span className="w-3 h-3 bg-red-500 mr-1"></span> Threshold
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

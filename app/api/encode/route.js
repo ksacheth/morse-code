@@ -1,173 +1,74 @@
-import { NextResponse } from "next/server";
-import { spawn } from "child_process";
-import path from "path";
-import fs from "fs/promises";
-import os from "os";
-
-// Set max duration for text encoding
-export const maxDuration = 60; // 1 minute timeout
-
-// Configure body size limit for large payloads
-export const bodyParser = {
-  sizeLimit: "50mb",
-};
+import { NextResponse } from 'next/server';
+import { spawn } from 'child_process';
+import path from 'path';
+import fs from 'fs/promises';
+import os from 'os';
 
 export async function POST(request) {
-  let tempDir = null;
-
   try {
     const { text } = await request.json();
 
-    if (!text || typeof text !== "string") {
-      return NextResponse.json({ error: "Text is required" }, { status: 400 });
+    if (!text) {
+      return NextResponse.json({ error: 'Text is required' }, { status: 400 });
     }
 
-    // Create a temporary directory for the output
-    tempDir = path.join(os.tmpdir(), `morse-encode-${Date.now()}`);
-    await fs.mkdir(tempDir, { recursive: true });
+    const scriptPath = path.join(process.cwd(), 'app/api/encode/encode.py');
+    const tempDir = os.tmpdir();
+    const outputFilePath = path.join(tempDir, `morse-${Date.now()}.wav`);
+    
+    // Spawn the Python process with output file path
+    const pythonProcess = spawn('python3', [scriptPath, text, outputFilePath]);
 
-    // Path to the Python encoder script (in the same directory as this route)
-    const pythonScriptPath = path.join(
-      process.cwd(),
-      "app",
-      "api",
-      "encode",
-      "encode.py"
-    );
+    let dataString = '';
+    let errorString = '';
 
-    console.log("Python script path:", pythonScriptPath);
+    const exitCode = await new Promise((resolve) => {
+      pythonProcess.stdout.on('data', (data) => {
+        dataString += data.toString();
+      });
 
-    // Check if script exists
-    try {
-      await fs.access(pythonScriptPath);
-      console.log("Python script found");
-    } catch {
-      throw new Error(`Python script not found at: ${pythonScriptPath}`);
-    }
+      pythonProcess.stderr.on('data', (data) => {
+        errorString += data.toString();
+      });
 
-    const outputPath = path.join(tempDir, "output.wav");
-
-    // Execute the Python script with venv
-    const venvPath = path.join(process.cwd(), "venv");
-    const pythonExe = path.join(venvPath, "bin", "python");
-
-    const output = await executePythonScript(pythonExe, [
-      pythonScriptPath,
-      text,
-      outputPath,
-    ]);
-
-    console.log("Python output:", output);
-
-    // Parse JSON output from Python script
-    let result;
-    try {
-      result = JSON.parse(output.trim());
-    } catch (parseError) {
-      console.error("Failed to parse JSON output:", output);
-      throw new Error(`Invalid JSON from Python script: ${parseError.message}`);
-    }
-
-    // Read the generated audio file
-    const audioBuffer = await fs.readFile(outputPath);
-
-    // Convert to base64 for the response
-    const base64Audio = audioBuffer.toString("base64");
-    const audioUrl = `data:audio/wav;base64,${base64Audio}`;
-
-    // Clean up temporary files
-    if (tempDir) {
-      await fs.rm(tempDir, { recursive: true, force: true });
-    }
-
-    return NextResponse.json({
-      morse: result.morse || "",
-      audioUrl,
-      duration: result.duration || 0,
-      status: "success",
+      pythonProcess.on('close', (code) => {
+        resolve(code);
+      });
     });
-  } catch (error) {
-    console.error("Encoding error:", error);
 
-    // Clean up on error
-    if (tempDir) {
+    if (exitCode !== 0) {
+      console.error(`Python script exited with code ${exitCode}`);
+      console.error(`Stderr: ${errorString}`);
+      // Try to clean up if file was created
+      await fs.unlink(outputFilePath).catch(() => {});
+      return NextResponse.json({ error: 'Internal Server Error', details: errorString }, { status: 500 });
+    }
+
+    try {
+      const result = JSON.parse(dataString);
+      
+      // Read the generated WAV file
       try {
-        await fs.rm(tempDir, { recursive: true, force: true });
-      } catch (cleanupError) {
-        console.error("Cleanup error:", cleanupError);
+        const audioBuffer = await fs.readFile(outputFilePath);
+        const audioBase64 = audioBuffer.toString('base64');
+        result.audio = audioBase64;
+        
+        // Clean up
+        await fs.unlink(outputFilePath);
+      } catch (fileError) {
+        console.error('Failed to read audio file:', fileError);
+        // Don't fail the whole request if just audio read fails, but it's critical here
+        return NextResponse.json({ error: 'Failed to read generated audio' }, { status: 500 });
       }
+
+      return NextResponse.json(result);
+    } catch (e) {
+      console.error('Failed to parse Python output:', dataString);
+      return NextResponse.json({ error: 'Invalid response from encoder' }, { status: 500 });
     }
 
-    return NextResponse.json(
-      {
-        error: "Failed to encode text",
-        details: error.message,
-      },
-      { status: 500 }
-    );
+  } catch (error) {
+    console.error('API Error:', error);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
-}
-
-// Helper function to execute Python script with venv
-function executePythonScript(pythonExe, args) {
-  return new Promise((resolve, reject) => {
-    console.log("Using Python:", pythonExe);
-    console.log("Args:", args);
-
-    const child = spawn(pythonExe, args, {
-      timeout: 60000, // 60 second timeout
-    });
-
-    let stdout = "";
-    let stderr = "";
-    let timedOut = false;
-
-    child.stdout.on("data", (data) => {
-      const chunk = data.toString();
-      stdout += chunk;
-      console.log("Python stdout:", chunk);
-    });
-
-    child.stderr.on("data", (data) => {
-      const chunk = data.toString();
-      stderr += chunk;
-      console.log("Python stderr:", chunk);
-    });
-
-    child.on("close", (code) => {
-      if (timedOut) return;
-
-      console.log("Process exit code:", code);
-
-      if (code === 0) {
-        if (!stdout.trim()) {
-          reject(new Error("Python script produced no output"));
-        } else {
-          resolve(stdout);
-        }
-      } else {
-        reject(
-          new Error(
-            `Python script failed with exit code ${code}\nStderr: ${stderr}\nStdout: ${stdout}`
-          )
-        );
-      }
-    });
-
-    child.on("error", (err) => {
-      console.error("Spawn error:", err);
-      reject(err);
-    });
-
-    // Set timeout
-    const timeoutId = setTimeout(() => {
-      timedOut = true;
-      child.kill("SIGTERM");
-      reject(new Error("Python script execution timeout (60s)"));
-    }, 60000);
-
-    child.on("close", () => {
-      clearTimeout(timeoutId);
-    });
-  });
 }
