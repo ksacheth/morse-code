@@ -6,7 +6,17 @@ import os from "os";
 
 export async function POST(request) {
   try {
-    const { text } = await request.json();
+    const {
+      text,
+      // Channel simulation options
+      noiseSnr = 100, // SNR in dB (100 = no noise)
+      fadingEnabled = false,
+      fadeDepth = 0.3,
+      fadeFreq = 0.5,
+      driftEnabled = false,
+      driftAmount = 10,
+      driftRate = 0.1,
+    } = await request.json();
 
     if (!text) {
       return NextResponse.json({ error: "Text is required" }, { status: 400 });
@@ -16,9 +26,27 @@ export async function POST(request) {
     const tempDir = os.tmpdir();
     const outputFilePath = path.join(tempDir, `morse-${Date.now()}.wav`);
 
+    // Build command arguments
+    const args = [scriptPath, text, outputFilePath];
+
+    // Add channel simulation arguments
+    if (noiseSnr < 100) {
+      args.push("--noise-snr", String(noiseSnr));
+    }
+    if (fadingEnabled) {
+      args.push("--fading");
+      args.push("--fade-depth", String(fadeDepth));
+      args.push("--fade-freq", String(fadeFreq));
+    }
+    if (driftEnabled) {
+      args.push("--drift");
+      args.push("--drift-amount", String(driftAmount));
+      args.push("--drift-rate", String(driftRate));
+    }
+
     // Use Python from environment variable or default to python3
     const pythonPath = process.env.PYTHON_PATH || "python3";
-    const pythonProcess = spawn(pythonPath, [scriptPath, text, outputFilePath]);
+    const pythonProcess = spawn(pythonPath, args);
 
     let dataString = "";
     let errorString = "";
@@ -36,6 +64,11 @@ export async function POST(request) {
         resolve(code);
       });
     });
+
+    // Log stderr for debugging
+    if (errorString) {
+      console.log("Python stderr:", errorString);
+    }
 
     if (exitCode !== 0) {
       console.error(`Python script exited with code ${exitCode}`);
