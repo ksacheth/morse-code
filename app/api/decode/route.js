@@ -49,6 +49,12 @@ export async function POST(request) {
     // Clean up temp file
     await fs.unlink(tempFilePath).catch(console.error);
 
+    // Always log stderr for debugging
+    if (errorString) {
+      console.log("Python stderr output:");
+      console.log(errorString);
+    }
+
     if (exitCode !== 0) {
       console.error(`Python script exited with code ${exitCode}`);
       console.error(`Stderr: ${errorString}`);

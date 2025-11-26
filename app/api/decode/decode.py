@@ -243,6 +243,7 @@ def identify_spaces(off_samples: np.ndarray) -> tuple[np.ndarray, np.ndarray, li
 
     cluster_centers_off = kmeans_off.cluster_centers_.flatten()
     sorted_center_indices = np.argsort(cluster_centers_off)
+    sorted_centers = np.sort(cluster_centers_off)
 
     intra_label, letter_label, word_label = -1, -1, -1
 
@@ -256,6 +257,22 @@ def identify_spaces(off_samples: np.ndarray) -> tuple[np.ndarray, np.ndarray, li
     if word_label != -1: label_to_space_type[word_label] = INTER_WORD_SPACE
 
     space_types = np.array([label_to_space_type.get(label, -1) for label in kmeans_off.labels_], dtype=int)
+    
+    # If we only have 2 clusters, check if the larger one should be split into letter/word
+    # Word space is typically 7 units vs letter space 3 units (ratio ~2.3x)
+    # Use the intra-character gap as baseline - word space should be ~7x intra, letter ~3x intra
+    if n_clusters_off == 2 and len(sorted_centers) >= 2:
+        intra_center = sorted_centers[0]  # smallest cluster center = intra-char gap
+        # Word space threshold: if gap is > 5x the intra gap, it's likely a word space
+        # (midpoint between 3x for letter and 7x for word)
+        word_threshold = intra_center * 5.0
+        
+        sys.stderr.write(f"DEBUG: intra_center={intra_center}, word_threshold={word_threshold}\n")
+        
+        for i in range(len(space_types)):
+            if space_types[i] == INTER_LETTER_SPACE and off_samples[i] > word_threshold:
+                space_types[i] = INTER_WORD_SPACE
+                sys.stderr.write(f"DEBUG: Promoted off_samples[{i}]={off_samples[i]} to WORD_SPACE\n")
 
     return space_types, np.sort(cluster_centers_off), [intra_label, letter_label, word_label]
 
@@ -341,6 +358,15 @@ def downsample_for_viz(arr, target_len=1000):
     # Ensure we don't return too many
     return arr[::step][:target_len].tolist()
 
+def normalize_for_viz(arr):
+    """Normalize array to 0-1 range for visualization"""
+    if len(arr) == 0:
+        return arr
+    max_val = np.max(np.abs(arr))
+    if max_val == 0:
+        return arr
+    return arr / max_val
+
 # --- Main Execution ---
 if __name__ == "__main__":
     log_time("Script started")
@@ -376,6 +402,10 @@ if __name__ == "__main__":
     
     # 5. Threshold
     square_wave, threshold_val = squared_signal(envelope)
+    
+    # Normalize threshold for visualization (0-1 range relative to envelope max)
+    envelope_max = np.max(envelope) if len(envelope) > 0 else 1.0
+    threshold_normalized = threshold_val / envelope_max if envelope_max > 0 else 0.5
 
     # 6. Decode
     on_dur, off_dur = calculate_on_off_samples(square_wave)
@@ -387,8 +417,10 @@ if __name__ == "__main__":
             "text": "No signal detected",
             "visualization": {
                 "audio": downsample_for_viz(data_filtered, 2000),
-                "envelope": downsample_for_viz(envelope, 2000),
-                "threshold": float(threshold_val)
+                "envelope": downsample_for_viz(normalize_for_viz(envelope), 2000),
+                "square": downsample_for_viz(square_wave, 2000),
+                "threshold": float(threshold_normalized),
+                "clustering": {"on": [], "off": []}
             }
         }
         print(json.dumps(output))
@@ -397,13 +429,25 @@ if __name__ == "__main__":
     try:
         dash_dot_chars = identify_dots_dashes(on_dur, sample_rate)
         space_types, _, space_labels = identify_spaces(off_dur) if len(off_dur) > 0 else ([], [], [-1,-1,-1])
+        
+        # Debug: log space types
+        sys.stderr.write(f"DEBUG: off_dur = {off_dur[:20] if len(off_dur) > 20 else off_dur}\n")
+        sys.stderr.write(f"DEBUG: space_types = {space_types[:20] if len(space_types) > 20 else space_types}\n")
+        sys.stderr.write(f"DEBUG: unique space_types = {np.unique(space_types)}\n")
+        
         morse_words = group_morse_words(dash_dot_chars, off_dur, space_labels)
         final_text = translate_morse(morse_words)
         morse_repr = " / ".join([" ".join(w) for w in morse_words])
+        
+        clustering_data = {
+            "on": [{"duration": int(d), "label": l} for d, l in zip(on_dur, dash_dot_chars)],
+            "off": [{"duration": int(d), "label": int(l)} for d, l in zip(off_dur, space_types)]
+        }
     except Exception as e:
         sys.stderr.write(f"Decoding logic error: {e}\n")
         final_text = "Error decoding"
         morse_repr = ""
+        clustering_data = {"on": [], "off": []}
 
     # 7. Output
     output = {
@@ -411,8 +455,10 @@ if __name__ == "__main__":
         "text": final_text,
         "visualization": {
             "audio": downsample_for_viz(data_filtered, 2000),
-            "envelope": downsample_for_viz(envelope, 2000),
-            "threshold": float(threshold_val)
+            "envelope": downsample_for_viz(normalize_for_viz(envelope), 2000),
+            "square": downsample_for_viz(square_wave, 2000),
+            "threshold": float(threshold_normalized),
+            "clustering": clustering_data
         }
     }
     
